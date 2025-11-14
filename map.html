@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OSTL Duck Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style> html,body,#map{height:100%;margin:0} #map{height:90vh} .info{padding:8px;font-family:Arial}</style>
+</head>
+<body>
+<div class="info"><strong>OSTL Duck Sighting Map</strong> — <a href="index.html">Submit a sighting</a></div>
+<div id="map"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const MAP_JSON_URL = https://script.google.com/macros/s/AKfycbw8JjPqgC9pMQW05v3hccEl0luKmmaw_e85oSXnsk4dY7rXtWRSPCIWV-BmWRYs03k/exec
+
+const map = L.map('map').setView([39.5, -98.35], 4);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors'}).addTo(map);
+
+async function load() {
+  const r = await fetch(MAP_JSON_URL);
+  const data = await r.json();
+  data.forEach(s => {
+    try {
+      const m = L.marker([s.lat,s.lon]).addTo(map);
+      let title = (s.city || '') + (s.state ? ', ' + s.state : '');
+      let html = '<div><strong>' + (title || 'Location') + '</strong><br>' + new Date(s.timestamp).toLocaleString() + '<br>';
+      if (s.photo) html += '<a href="'+s.photo+'" target="_blank"><img src="'+s.photo+'" style="max-width:200px;margin-top:6px;display:block"></a>';
+      if (s.notes) html += '<div style="margin-top:6px;">' + escapeHtml(s.notes) + '</div>';
+      html += '</div>';
+      m.bindPopup(html);
+    } catch(e){ console.error(e); }
+  });
+}
+function escapeHtml(str){ if(!str) return ''; return str.replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])); }
+load();
+</script>
+</body>
+</html>
