@@ -1,0 +1,105 @@
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OSTL Duck Me</title>
+<style>
+  body { font-family: Arial, sans-serif; padding:16px; max-width:720px; margin:auto; }
+  button { padding:10px 14px; font-size:16px; }
+  img.preview { max-width:200px; display:block; margin-top:8px; }
+</style>
+</head>
+<body>
+  <h2>OSTL × Jeep — Duck Me</h2>
+  <p>Tap once to mark your OSTL Duck Sighting (anonymous). Add a photo if you wish.</p>
+  <div>
+    <button id="duckBtn">📍 Duck Me — Mark My Location</button>
+  </div>
+
+  <div id="formArea" style="display:none; margin-top:12px;">
+    <input type="file" id="photo" accept="image/*"><br>
+    <img id="preview" class="preview" style="display:none;">
+    <textarea id="notes" placeholder="Notes (optional)" style="width:100%; height:60px;"></textarea><br>
+    <button id="submitBtn">Submit Sighting</button>
+  </div>
+
+  <div id="status" style="margin-top:12px;"></div>
+
+<script>
+const APPS_SCRIPT_URL = https://script.google.com/macros/s/AKfycbw8JjPqgC9pMQW05v3hccEl0luKmmaw_e85oSXnsk4dY7rXtWRSPCIWV-BmWRYs03k/exec
+const IMGBB_API_KEY = f04e43971759d864b8a0420e45e444ba
+let CURRENT = { lat: null, lon: null };
+
+document.getElementById('duckBtn').addEventListener('click', () => {
+  const st = document.getElementById('status');
+  st.style.color = 'black';
+  st.innerText = 'Requesting location — please allow location access...';
+  if (!navigator.geolocation) { st.innerText = 'Geolocation not supported.'; return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    CURRENT.lat = pos.coords.latitude.toFixed(6);
+    CURRENT.lon = pos.coords.longitude.toFixed(6);
+    st.innerHTML = 'Location captured: ' + CURRENT.lat + ', ' + CURRENT.lon;
+    document.getElementById('formArea').style.display = 'block';
+  }, err => {
+    st.style.color = 'red'; st.innerText = 'Location error: ' + err.message;
+  }, { enableHighAccuracy:true, timeout:15000 });
+});
+
+document.getElementById('photo').addEventListener('change', function(e) {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    document.getElementById('preview').src = ev.target.result;
+    document.getElementById('preview').style.display = 'block';
+  };
+  reader.readAsDataURL(f);
+});
+
+document.getElementById('submitBtn').addEventListener('click', async () => {
+  const st = document.getElementById('status');
+  if (!CURRENT.lat || !CURRENT.lon) { st.style.color='red'; st.innerText='Press Duck Me first.'; return; }
+  st.style.color='black'; st.innerText='Submitting...';
+  let photoUrl = '';
+  const fileInput = document.getElementById('photo');
+  if (fileInput.files.length > 0) {
+    // Upload to ImgBB
+    const f = fileInput.files[0];
+    const form = new FormData();
+    form.append('key', IMGBB_API_KEY);
+    form.append('image', await toBase64(f).then(s => s.split(',')[1])); // imgBB expects base64 string without prefix
+    try {
+      const r = await fetch('https://api.imgbb.com/1/upload', { method:'POST', body: form });
+      const j = await r.json();
+      if (j && j.data && j.data.url) photoUrl = j.data.url;
+    } catch (e) {
+      console.error('imgbb error', e);
+    }
+  }
+
+  // Post to Apps Script
+  try {
+    const payload = { lat: CURRENT.lat, lon: CURRENT.lon, photoUrl: photoUrl, notes: document.getElementById('notes').value };
+    const resp = await fetch(APPS_SCRIPT_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    const jr = await resp.json();
+    if (jr && jr.success) {
+      st.style.color='green'; st.innerHTML='Saved! View map <a href="/map.html" target="_blank">here</a>.';
+      document.getElementById('formArea').style.display='none';
+    } else {
+      st.style.color='red'; st.innerText='Save failed: ' + (jr.message || 'unknown');
+    }
+  } catch (err) {
+    st.style.color='red'; st.innerText='Error: ' + err;
+  }
+});
+
+function toBase64(file) {
+  return new Promise((res) => {
+    const reader = new FileReader();
+    reader.onload = () => res(reader.result);
+    reader.readAsDataURL(file);
+  });
+}
+</script>
+</body>
+</html>
