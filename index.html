@@ -1,36 +1,148 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
 <head>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>OSTL Duck Me</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      padding: 40px;
-      background: #f7f7f7;
-    }
-    button {
-      padding: 15px 30px;
-      font-size: 20px;
-      border: none;
-      border-radius: 8px;
-      background: #ffcc00;
-      cursor: pointer;
-    }
-    button:hover {
-      background: #e6b800;
-    }
+    body{font-family:Arial,Helvetica,sans-serif;margin:16px;max-width:720px}
+    h1{font-size:22px}
+    button{padding:12px 18px;font-size:16px;border-radius:8px;background:#0077cc;color:#fff;border:0;cursor:pointer}
+    .hidden{display:none}
+    .preview{max-width:220px;margin-top:8px}
+    #status{margin-top:12px}
   </style>
 </head>
 <body>
+  <h1>OSTL × Jeep — Duck Me</h1>
+  <p>Tap once to mark your OSTL Duck Sighting. This plots a single anonymous point. Optionally add a photo.</p>
 
-  <h1>Operation Share The Love – Duck Me</h1>
-  <p>Press the button below to record your duck location!</p>
+  <div>
+    <button id="duckBtn">📍 Duck Me — Mark My Location</button>
+  </div>
 
-  <button onclick="window.location.href='map.html'">
-    Duck Me 🦆
-  </button>
+  <div id="formArea" class="hidden">
+    <p><strong>Optional:</strong> add a photo and a short note before submitting.</p>
+    <input type="file" id="photo" accept="image/*"><br>
+    <img id="preview" class="preview hidden" alt="preview"><br>
+    <textarea id="notes" placeholder="Notes (optional)" style="width:100%;height:70px"></textarea><br>
+    <button id="submitBtn">Submit Sighting</button>
+  </div>
 
+  <div id="status"></div>
+
+<script>
+/* ====== CONFIG — paste your endpoints below (already filled) ====== */
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw8JjPqgC9pMQW05v3hccEl0luKmmaw_e85oSXnsk4dY7rXtWRSPCIWV-BmWRYs03k/exec';
+const IMGBB_API_KEY   = 'f04e43971759d864b8a0420e45e444ba';
+/* ================================================================= */
+
+let current = { lat: null, lon: null };
+
+// Grab GPS when user taps Duck Me
+document.getElementById('duckBtn').addEventListener('click', function(){
+  const status = document.getElementById('status');
+  status.style.color = 'black';
+  status.textContent = 'Requesting location — please allow location access...';
+  if (!navigator.geolocation) { status.style.color='red'; status.textContent='Geolocation not supported.'; return; }
+  navigator.geolocation.getCurrentPosition(function(pos){
+    current.lat = pos.coords.latitude.toFixed(6);
+    current.lon = pos.coords.longitude.toFixed(6);
+    status.style.color='green';
+    status.innerHTML = `Location captured: <strong>${current.lat}, ${current.lon}</strong><br>Optional: add photo & note, then Submit.`;
+    document.getElementById('formArea').classList.remove('hidden');
+  }, function(err){
+    status.style.color='red';
+    status.textContent = 'Location error: ' + err.message;
+  }, {enableHighAccuracy:true, timeout:15000, maximumAge:0});
+});
+
+// Preview photo
+document.getElementById('photo').addEventListener('change', function(e){
+  const f = e.target.files[0];
+  const preview = document.getElementById('preview');
+  if (!f) { preview.classList.add('hidden'); return; }
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    preview.src = ev.target.result;
+    preview.classList.remove('hidden');
+  }
+  reader.readAsDataURL(f);
+});
+
+// Submit logic: upload to ImgBB (if photo), then POST to Apps Script
+document.getElementById('submitBtn').addEventListener('click', async function(){
+  const status = document.getElementById('status');
+  if (!current.lat || !current.lon) { status.style.color='red'; status.textContent='Please press Duck Me first.'; return; }
+
+  status.style.color='black'; status.textContent='Submitting...';
+
+  let photoUrl = '';
+  const fileInput = document.getElementById('photo');
+  if (fileInput.files.length > 0) {
+    const f = fileInput.files[0];
+    try {
+      const base64 = await toBase64(f); // data:<type>;base64,...
+      const payload = new FormData();
+      payload.append('key', IMGBB_API_KEY);
+      // imgbb expects base64 without the "data:*/*;base64," prefix
+      payload.append('image', base64.split(',')[1]);
+      const imgbbResp = await fetch('https://api.imgbb.com/1/upload', { method: 'POST', body: payload });
+      const j = await imgbbResp.json();
+      if (j && j.data && (j.data.display_url || j.data.url)) {
+        photoUrl = j.data.display_url || j.data.url;
+      } else {
+        console.warn('ImgBB upload did not return a usable url', j);
+      }
+    } catch (err) {
+      console.error('ImgBB upload error', err);
+      status.style.color='red';
+      status.textContent = 'Photo upload failed. Try again or submit without photo.';
+      return;
+    }
+  }
+
+  // now post to Apps Script endpoint
+  try {
+    const body = {
+      lat: current.lat,
+      lon: current.lon,
+      photoUrl: photoUrl,
+      notes: document.getElementById('notes').value || ''
+    };
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const json = await res.json();
+    if (json && json.success) {
+      status.style.color='green';
+      status.innerHTML = 'Saved — thank you! View the map <a href="map.html" target="_blank">here</a>.';
+      document.getElementById('formArea').classList.add('hidden');
+      // reset
+      current = { lat:null, lon:null };
+      document.getElementById('photo').value = '';
+      document.getElementById('preview').classList.add('hidden');
+      document.getElementById('notes').value = '';
+    } else {
+      throw new Error(json && json.message ? json.message : 'Unknown error from server');
+    }
+  } catch (err) {
+    console.error(err);
+    status.style.color='red';
+    status.textContent = 'Save failed: ' + err.message;
+  }
+});
+
+function toBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject('File read error');
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+}
+</script>
 </body>
 </html>
+
