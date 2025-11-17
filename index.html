@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html>  
 <head>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>OSTL Duck Me</title>
@@ -10,6 +10,7 @@
     .hidden{display:none}
     .preview{max-width:220px;margin-top:8px}
     #status{margin-top:12px}
+    label{display:block;margin-top:8px}
   </style>
 </head>
 <body>
@@ -22,9 +23,15 @@
 
   <div id="formArea" class="hidden">
     <p><strong>Optional:</strong> add a photo and a short note before submitting.</p>
-    <input type="file" id="photo" accept="image/*"><br>
+
+    <label for="photo">Photo (optional)</label>
+    <input type="file" id="photo" name="photo" accept="image/*"><br>
+
     <img id="preview" class="preview hidden" alt="preview"><br>
-    <textarea id="notes" placeholder="Notes (optional)" style="width:100%;height:70px"></textarea><br>
+
+    <label for="notes">Notes (optional)</label>
+    <textarea id="notes" name="notes" placeholder="Notes (optional)" style="width:100%;height:70px"></textarea><br>
+
     <button id="submitBtn">Submit Sighting</button>
   </div>
 
@@ -101,20 +108,30 @@ document.getElementById('submitBtn').addEventListener('click', async function(){
     }
   }
 
-  // now post to Apps Script endpoint
+  // now post to Apps Script endpoint using a simple form-encoded POST (avoids CORS preflight)
   try {
-    const body = {
-      lat: current.lat,
-      lon: current.lon,
-      photoUrl: photoUrl,
-      notes: document.getElementById('notes').value || ''
-    };
+    const params = new URLSearchParams();
+    params.append('lat', current.lat);
+    params.append('lon', current.lon);
+    params.append('photoUrl', photoUrl);
+    params.append('notes', document.getElementById('notes').value || '');
+
+    // NOTE: we intentionally DO NOT set the Content-Type header manually so the browser uses
+    // application/x-www-form-urlencoded and avoids triggering an OPTIONS preflight.
     const res = await fetch(APPS_SCRIPT_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: params,
+      // keep credentials default (omit)
     });
+
+    // check network response
+    if (!res.ok) {
+      throw new Error('Server responded with ' + res.status + ' ' + res.statusText);
+    }
+
+    // Apps Script returns JSON text — parse it
     const json = await res.json();
+
     if (json && json.success) {
       status.style.color='green';
       status.innerHTML = 'Saved — thank you! View the map <a href="map.html" target="_blank">here</a>.';
@@ -130,7 +147,7 @@ document.getElementById('submitBtn').addEventListener('click', async function(){
   } catch (err) {
     console.error(err);
     status.style.color='red';
-    status.textContent = 'Save failed: ' + err.message;
+    status.textContent = 'Save failed: ' + (err && err.message ? err.message : err);
   }
 });
 
@@ -145,4 +162,3 @@ function toBase64(file) {
 </script>
 </body>
 </html>
-
