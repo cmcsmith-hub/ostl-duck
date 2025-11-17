@@ -1,105 +1,86 @@
 <!doctype html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>OSTL Duck Map</title>
-
-  <!-- Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="" crossorigin=""/>
-  <!-- MarkerCluster CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
-    html,body,#map { height: 100%; margin: 0; padding: 0; }
-    #map { min-height: 480px; }
-    .popup-image { max-width: 240px; display:block; margin:6px 0; }
-    .popup-meta { font-size: 0.9em; color:#333; margin-bottom:6px; }
+    body{margin:0;font-family:Arial}
+    #top{padding:10px;background:#f4f4f4}
+    #map{height:88vh}
+    .popup-img{max-width:220px;display:block;margin-top:6px}
   </style>
 </head>
 <body>
+  <div id="top">
+    <strong>OSTL Duck Sighting Map</strong> — <a href="index.html">Submit a sighting</a>
+  </div>
   <div id="map"></div>
 
-  <!-- Leaflet JS -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="" crossorigin=""></script>
-  <!-- MarkerCluster JS -->
-  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // ====== CONFIG - your published CSV URL ======
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vShLU5eumYq4jDHHYLYtJovA8751pKbgJJfBEKQbZ3FDNH0oXa0QkOJrT494m-H_OR32MtVYxkovKku/pub?gid=0&single=true&output=csv';
+    // =================================================================
 
-<script>
-/* CONFIG: replace this with your Apps Script web app URL if different */
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyOj5JFLwBohM5ul8uvhGwLHXGEYwluqYgrDW5gp7fYiIx9bPB44qvYoSsT_R3jYu0/exec';
+    const map = L.map('map').setView([39.5,-98.35],4);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18, attribution:'© OpenStreetMap contributors'}).addTo(map);
 
-const map = L.map('map').setView([37.8, -96], 4);
-
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap contributors'
-}).addTo(map);
-
-// Create a marker cluster group. The options enable spiderfy on click,
-// chunked loading for many markers, and avoid showing coverage polygon on hover.
-const markers = L.markerClusterGroup({
-  spiderfyOnMaxZoom: true,
-  showCoverageOnHover: false,
-  maxClusterRadius: 50,
-  chunkedLoading: true
-});
-map.addLayer(markers);
-
-// Fetch sightings and add markers
-async function loadSightings() {
-  try {
-    const res = await fetch(`${APPS_SCRIPT_URL}?action=sightings`);
-    if (!res.ok) throw new Error('Fetch failed: ' + res.status);
-    const data = await res.json();
-    if (!Array.isArray(data)) return;
-
-    data.forEach(s => {
-      const lat = parseFloat(s.lat);
-      const lon = parseFloat(s.lon);
-      if (!isFinite(lat) || !isFinite(lon)) return;
-
-      const popupParts = [];
-      const ts = s.timestamp ? new Date(s.timestamp).toLocaleString() : '';
-      if (ts) popupParts.push(`<div class="popup-meta"><strong>${ts}</strong></div>`);
-      const place = (s.city || s.state) ? `<div class="popup-meta">${escapeHtml(s.city || '')} ${escapeHtml(s.state || '')}</div>` : '';
-      if (place) popupParts.push(place);
-      if (s.photo) popupParts.push(`<img class="popup-image" src="${escapeAttr(s.photo)}" alt="photo">`);
-      if (s.notes) popupParts.push(`<div>${escapeHtml(s.notes)}</div>`);
-
-      const popupContent = popupParts.join('');
-
-      const marker = L.marker([lat, lon]);
-      marker.bindPopup(popupContent || '(no details)');
-      markers.addLayer(marker);
-    });
-
-    // If at least one marker, fit map bounds to all markers
-    if (markers.getLayers().length) {
-      const groupBounds = markers.getBounds();
-      if (groupBounds.isValid()) map.fitBounds(groupBounds.pad(0.25));
+    async function loadCsv(url) {
+      const r = await fetch(url);
+      const txt = await r.text();
+      return csvToArray(txt);
     }
 
-  } catch (err) {
-    console.error('Error loading sightings:', err);
-  }
-}
+    function csvToArray(csv) {
+      const lines = csv.trim().split('\n');
+      const headers = lines.shift().split(',').map(h => h.replace(/(^"|"$)/g,'').trim());
+      const rows = lines.map(line => {
+        // simple CSV parse — assumes no commas inside fields
+        const cols = line.split(',').map(c => c.replace(/(^"|"$)/g,'').trim());
+        const obj = {};
+        headers.forEach((h,i) => obj[h] = cols[i] || '');
+        return obj;
+      });
+      return rows;
+    }
 
-// small helpers to avoid XSS injection into popups
-function escapeHtml(s) {
-  if (!s) return '';
-  return String(s)
-    .replaceAll('&','&amp;')
-    .replaceAll('<','&lt;')
-    .replaceAll('>','&gt;')
-    .replaceAll('"','&quot;')
-    .replaceAll("'", '&#39;');
-}
-function escapeAttr(s) {
-  return escapeHtml(s).replaceAll('\n','');
-}
+    function addMarkers(rows) {
+      rows.forEach(r => {
+        // map headers: Timestamp, Latitude, Longitude, City, State, PhotoURL, Notes
+        const lat = parseFloat(r['Latitude']) || parseFloat(r['latitude']) || NaN;
+        const lon = parseFloat(r['Longitude']) || parseFloat(r['longitude']) || NaN;
+        if (!isFinite(lat) || !isFinite(lon)) return;
+        const city = r['City'] || r['city'] || '';
+        const state = r['State'] || r['state'] || '';
+        const ts = r['Timestamp'] || r['timestamp'] || '';
+        const photo = r['PhotoURL'] || r['photourl'] || r['photo'] || '';
+        const notes = r['Notes'] || r['notes'] || '';
 
-loadSightings();
-</script>
+        const marker = L.marker([lat, lon]).addTo(map);
+        let title = (city || '') + (state ? ', ' + state : '');
+        let html = `<div><strong>${escapeHtml(title) || 'Location'}</strong><br>${escapeHtml(ts)}<br>`;
+        if (photo) {
+          html += `<a href="${photo}" target="_blank"><img src="${photo}" class="popup-img" alt="photo"></a>`;
+        }
+        if (notes) html += `<div style="margin-top:6px">${escapeHtml(notes)}</div>`;
+        html += '</div>';
+        marker.bindPopup(html);
+      });
+    }
+
+    function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])); }
+
+    // initial load
+    (async function(){
+      try {
+        const rows = await loadCsv(CSV_URL);
+        addMarkers(rows);
+      } catch (err) {
+        console.error('Map load error', err);
+        alert('Map failed to load. Make sure CSV is published and accessible.');
+      }
+    })();
+  </script>
 </body>
 </html>
